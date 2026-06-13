@@ -1,8 +1,9 @@
 import sys
 import os
 
-# Remonter 2 niveaux pour trouver le module ms_notification
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
+# rabbit_consumer.py est à /app/notifications/, le package ms_notification est à /app/
+# → remonter 1 seul niveau pour le trouver
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'ms_notification.settings')
 
@@ -54,25 +55,47 @@ def handle_message(ch, method, properties, body):
         )
 
         print(f"[✓] Notification créée et envoyée → user {user_id} : {message}")
-        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
+        ch.basic_ack(delivery_tag=method.delivery_tag)
 
     except Exception as e:
         print(f"[✗] Erreur traitement message : {e}")
-        ch.basic_nack(delivery_tag=method.delivery_tag)
+        ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False)
 
 
-def start_consumer():
+def _open_rabbit_connection():
+    """Ouvre la connexion RabbitMQ avec retry exponentiel.
+
+    RabbitMQ peut accepter le TCP sans être prêt à AMQP : on retente jusqu'à
+    ~2 minutes avant d'abandonner.
+    """
+    import time as _time
+
     credentials = pika.PlainCredentials(
         settings.RABBITMQ_USER,
         settings.RABBITMQ_PASSWORD
     )
-    connection = pika.BlockingConnection(
-        pika.ConnectionParameters(
-            host=settings.RABBITMQ_HOST,
-            port=settings.RABBITMQ_PORT,
-            credentials=credentials,
-        )
+    params = pika.ConnectionParameters(
+        host=settings.RABBITMQ_HOST,
+        port=settings.RABBITMQ_PORT,
+        credentials=credentials,
+        heartbeat=30,
+        blocked_connection_timeout=30,
+        connection_attempts=1,
+        socket_timeout=5,
     )
+    delay = 2
+    for attempt in range(1, 16):
+        try:
+            return pika.BlockingConnection(params)
+        except pika.exceptions.AMQPConnectionError as e:
+            print(f"[…] RabbitMQ pas encore prêt (tentative {attempt}/15) : {e}")
+            _time.sleep(delay)
+            delay = min(delay + 2, 15)
+    raise RuntimeError("RabbitMQ injoignable après 15 tentatives")
+
+
+def start_consumer():
+    connection = _open_rabbit_connection()
     channel = connection.channel()
 
     # Déclarer l'exchange

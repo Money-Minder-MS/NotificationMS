@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -50,11 +51,11 @@ ASGI_APPLICATION = 'ms_notification.asgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'ms_notification_db',
-        'USER': 'postgres',
-        'PASSWORD': 'admin',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.environ.get('POSTGRES_DB', 'ms_notification_db'),
+        'USER': os.environ.get('POSTGRES_USER', 'postgres'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', 'admin'),
+        'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
+        'PORT': os.environ.get('POSTGRES_PORT', '5432'),
     }
 }
 
@@ -63,16 +64,29 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            'hosts': [('localhost', 6379)],
+            'hosts': [{
+                'host': os.environ.get('REDIS_HOST', 'localhost'),
+                'port': int(os.environ.get('REDIS_PORT', '6379')),
+                # Empêche le drop des connexions Redis idle sous Docker :
+                # keepalive TCP + ping applicatif périodique (détecte et reconnecte
+                # les sockets morts → plus de "Timeout reading from redis").
+                'socket_keepalive': True,
+                'socket_timeout': None,
+                'socket_connect_timeout': 5,
+                'health_check_interval': 30,
+                'retry_on_timeout': True,
+            }],
+            'capacity': 1500,
+            'expiry': 60,
         },
     },
 }
 
 # ── RabbitMQ ────────────────────────────────────────────────
-RABBITMQ_HOST     = 'localhost'
-RABBITMQ_PORT     = 5672
-RABBITMQ_USER     = 'guest'
-RABBITMQ_PASSWORD = 'guest'
+RABBITMQ_HOST     = os.environ.get('RABBITMQ_HOST', 'localhost')
+RABBITMQ_PORT     = int(os.environ.get('RABBITMQ_PORT', '5672'))
+RABBITMQ_USER     = os.environ.get('RABBITMQ_USER', 'guest')
+RABBITMQ_PASSWORD = os.environ.get('RABBITMQ_PASSWORD', 'guest')
 RABBITMQ_EXCHANGE = 'notification.exchange'
 RABBITMQ_QUEUE    = 'notification.queue'
 RABBITMQ_ROUTING_KEYS = [
@@ -84,10 +98,10 @@ RABBITMQ_ROUTING_KEYS = [
 ]
 
 # ── Eureka ──────────────────────────────────────────────────
-EUREKA_SERVER_URL  = 'http://localhost:8761/eureka'
-SERVICE_NAME       = 'ms-notification'
-SERVICE_HOST       = 'localhost'
-SERVICE_PORT       = 8086
+EUREKA_SERVER_URL  = os.environ.get('EUREKA_SERVER_URL', 'http://localhost:8761/eureka')
+SERVICE_NAME       = os.environ.get('SERVICE_NAME', 'ms-notification')
+SERVICE_HOST       = os.environ.get('SERVICE_HOST', 'localhost')
+SERVICE_PORT       = int(os.environ.get('SERVICE_PORT', '8086'))
 
 # ── CORS ────────────────────────────────────────────────────
 CORS_ALLOW_ALL_ORIGINS = True
